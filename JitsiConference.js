@@ -1695,7 +1695,7 @@ JitsiConference.prototype.onMemberLeft = function(jid) {
         removePromises.push(session.removeRemoteStreamsOnLeave(id));
     }
 
-    Promise.allSettled(removePromises)
+    Promise.all(removePromises)
         .then(results => {
             let removedTracks = [];
 
