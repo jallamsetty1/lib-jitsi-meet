@@ -1670,16 +1670,13 @@ export default class JingleSessionPC extends JingleSession {
      * operation fails.
      */
     removeRemoteStreamsOnLeave(id) {
-        let remoteTracks = [];
+        const removeSsrcInfo = this.peerconnection.getRemoteSourceInfoByParticipant(id);
 
         const workFunction = finishCallback => {
-            const removeSsrcInfo = this.peerconnection.getRemoteSourceInfoByParticipant(id);
-
             if (removeSsrcInfo.length) {
                 const oldLocalSdp = new SDP(this.peerconnection.localDescription.sdp);
                 const newRemoteSdp = this._processRemoteRemoveSource(removeSsrcInfo);
 
-                remoteTracks = this.peerconnection.removeRemoteTracks(id);
                 this._renegotiate(newRemoteSdp.raw)
                     .then(() => {
                         const newLocalSDP = new SDP(this.peerconnection.localDescription.sdp);
@@ -1704,7 +1701,7 @@ export default class JingleSessionPC extends JingleSession {
                         reject(error);
                     } else {
                         logger.info(`removeRemoteStreamsOnLeave done on ${this}!`);
-                        resolve(remoteTracks);
+                        resolve();
                     }
                 });
         });

@@ -1690,30 +1690,24 @@ JitsiConference.prototype.onMemberLeft = function(jid) {
     // Remove the ssrcs from the remote description.
     const mediaSessions = this._getMediaSessions();
     const removePromises = [];
+    let removedTracks = [];
 
     for (const session of mediaSessions) {
         removePromises.push(session.removeRemoteStreamsOnLeave(id));
+        removedTracks = removedTracks.concat(session.peerconnection.removeRemoteTracks(id));
+    }
+
+    removedTracks.forEach(track => {
+        this.eventEmitter.emit(JitsiConferenceEvents.TRACK_REMOVED, track);
+    });
+
+    // There can be no participant in case the member that left is focus.
+    if (participant) {
+        this.eventEmitter.emit(JitsiConferenceEvents.USER_LEFT, id, participant);
     }
 
     Promise.allSettled(removePromises)
-        .then(results => {
-            let removedTracks = [];
-
-            results.map(result => result.value).forEach(value => {
-                if (value) {
-                    removedTracks = removedTracks.concat(value);
-                }
-            });
-
-            removedTracks.forEach(track => {
-                this.eventEmitter.emit(JitsiConferenceEvents.TRACK_REMOVED, track);
-            });
-
-            // There can be no participant in case the member that left is focus.
-            if (participant) {
-                this.eventEmitter.emit(JitsiConferenceEvents.USER_LEFT, id, participant);
-            }
-
+        .then(() => {
             this._maybeStartOrStopP2P(true /* triggered by user left event */);
             this._maybeClearSITimeout();
         });
