@@ -384,12 +384,21 @@ class RTCUtils extends Listenable {
             this.getTrackID = ({ id }) => id;
         }
 
-        this.pcConstraints = browser.isChromiumBased() || browser.isReactNative()
+        this.pcConstraints = browser.usesPlanB()
             ? { optional: [
                 { googScreencastMinBitrate: 100 },
                 { googCpuOveruseDetection: true }
             ] }
-            : {};
+
+            // In unified plan mode, if local sources are not added before creating an offer (i.e. when client is
+            // the offerer in p2p mode), the browser does not produce any m-lines in the SDP.
+            // Setting offerToReceiveAudio/offerToReceiveVideo to 1 ensures recvonly ssrcs are present in the SDP
+            // and all the codec capabilities are added to the media description which can be negotiated with the
+            // remote peer.
+            : {
+                offerToReceiveAudio: 1,
+                offerToReceiveVideo: 1
+            };
 
         screenObtainer.init(options);
 
