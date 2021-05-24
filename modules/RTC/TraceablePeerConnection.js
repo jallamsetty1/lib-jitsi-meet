@@ -1514,8 +1514,8 @@ const getters = {
 
         this.trace('getLocalDescription::preTransform', dumpSDP(desc));
 
-        // if we're running on FF, transform to Plan B first.
-        if (browser.usesUnifiedPlan()) {
+        // If we are using unified plan and this is a JVB connection, transform to Plan B first.
+        if (browser.usesUnifiedPlan() && !this.isP2P) {
             desc = this.interop.toPlanB(desc);
             this.trace('getLocalDescription::postTransform (Plan B)',
                 dumpSDP(desc));
@@ -1556,8 +1556,8 @@ const getters = {
         }
         this.trace('getRemoteDescription::preTransform', dumpSDP(desc));
 
-        // if we're running on FF, transform to Plan B first.
-        if (browser.usesUnifiedPlan()) {
+        // If we are using unified plan and this is a JVB connection, transform to Plan B first.
+        if (browser.usesUnifiedPlan() && !this.isP2P) {
             desc = this.interop.toPlanB(desc);
             this.trace(
                 'getRemoteDescription::postTransform (Plan B)', dumpSDP(desc));
@@ -2231,9 +2231,8 @@ TraceablePeerConnection.prototype.setLocalDescription = function(description) {
     if (browser.usesPlanB()) {
         localSdp = this._adjustLocalMediaDirection(localSdp);
         localSdp = this._ensureSimulcastGroupIsLast(localSdp);
-    } else {
-
-        // if we're using unified plan, transform to it first.
+    } else if (!this.isP2P) {
+        // If we're using unified plan and this is a jvb connection, transform to it first.
         localSdp = this.interop.toUnifiedPlan(localSdp);
         this.trace(
             'setLocalDescription::postTransform (Unified Plan)',
@@ -2451,7 +2450,7 @@ TraceablePeerConnection.prototype.setRemoteDescription = function(description) {
 
         // eslint-disable-next-line no-param-reassign
         description = normalizePlanB(description);
-    } else {
+    } else if (!this.isP2P) {
         const currentDescription = this.peerconnection.remoteDescription;
 
         // eslint-disable-next-line no-param-reassign
