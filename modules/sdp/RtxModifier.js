@@ -1,5 +1,8 @@
 import { getLogger } from '@jitsi/logger';
 
+import MediaDirection from '../../service/RTC/MediaDirection';
+import * as MediaType from '../../service/RTC/MediaType';
+
 import SDPUtil from './SDPUtil';
 import { parseSecondarySSRC, SdpTransformWrap } from './SdpTransformUtil';
 
@@ -55,8 +58,7 @@ function updateAssociatedRtxStream(mLine, primarySsrcInfo, rtxSsrc) {
  */
 
 /**
- * Adds any missing RTX streams for video streams
- *  and makes sure that they remain consistent
+ * Adds any missing RTX streams for video streams and makes sure that they remain consistent.
  */
 export default class RtxModifier {
     /**
@@ -64,26 +66,22 @@ export default class RtxModifier {
      */
     constructor() {
         /**
-         * Map of video ssrc to corresponding RTX
-         *  ssrc
+         * Map of video ssrc to corresponding RTX ssrc
          */
         this.correspondingRtxSsrcs = new Map();
     }
 
     /**
-     * Clear the cached map of primary video ssrcs to
-     *  their corresponding rtx ssrcs so that they will
-     *  not be used for the next call to modifyRtxSsrcs
+     * Clear the cached map of primary video ssrcs to their corresponding rtx ssrcs so that they will not be used for
+     * the next call to modifyRtxSsrcs.
      */
     clearSsrcCache() {
         this.correspondingRtxSsrcs.clear();
     }
 
     /**
-     * Explicitly set the primary video ssrc -> rtx ssrc
-     *  mapping to be used in modifyRtxSsrcs
-     * @param {Map} ssrcMapping a mapping of primary video
-     *  ssrcs to their corresponding rtx ssrcs
+     * Explicitly set the primary video ssrc -> rtx ssrc mapping to be used in modifyRtxSsrcs
+     * @param {Map} ssrcMapping a mapping of primary video ssrcs to their corresponding rtx ssrcs
      */
     setSsrcCache(ssrcMapping) {
         logger.debug('Setting ssrc cache to ', ssrcMapping);
@@ -91,35 +89,39 @@ export default class RtxModifier {
     }
 
     /**
-     * Adds RTX ssrcs for any video ssrcs that don't
-     *  already have them.  If the video ssrc has been
-     *  seen before, and already had an RTX ssrc generated,
-     *  the same RTX ssrc will be used again.
+     * Adds RTX ssrcs for any video ssrcs that don't already have them.  If the video ssrc has been seen before, and
+     * already had an RTX ssrc generated, the same RTX ssrc will be used again.
      * @param {string} sdpStr sdp in raw string format
      */
     modifyRtxSsrcs(sdpStr) {
+        let modified = false;
         const sdpTransformer = new SdpTransformWrap(sdpStr);
-        const videoMLine = sdpTransformer.selectMedia('video');
+        const videoMLines = sdpTransformer.selectMedia(MediaType.VIDEO);
 
-        if (!videoMLine) {
+        if (!videoMLines?.length) {
             logger.debug(`No 'video' media found in the sdp: ${sdpStr}`);
 
             return sdpStr;
         }
 
-        return this.modifyRtxSsrcs2(videoMLine)
-            ? sdpTransformer.toRawSDP() : sdpStr;
+        for (const videoMLine of videoMLines) {
+            if (this.modifyRtxSsrcs2(videoMLine)) {
+                modified = true;
+            }
+        }
+
+        return modified ? sdpTransformer.toRawSDP() : sdpStr;
     }
 
     /**
-     * Does the same thing as {@link modifyRtxSsrcs}, but takes the
-     *  {@link MLineWrap} instance wrapping video media as an argument.
+     * Does the same thing as {@link modifyRtxSsrcs}, but takes the {@link MLineWrap} instance wrapping video media as
+     * an argument.
      * @param {MLineWrap} videoMLine
-     * @return {boolean} <tt>true</tt> if the SDP wrapped by
-     *  {@link SdpTransformWrap} has been modified or <tt>false</tt> otherwise.
+     * @return {boolean} <tt>true</tt> if the SDP wrapped by {@link SdpTransformWrap} has been modified or
+     * <tt>false</tt> otherwise.
      */
     modifyRtxSsrcs2(videoMLine) {
-        if (videoMLine.direction === 'recvonly') {
+        if (videoMLine.direction === MediaDirection.RECVONLY) {
 
             return false;
         }
@@ -168,40 +170,30 @@ export default class RtxModifier {
      */
     stripRtx(sdpStr) {
         const sdpTransformer = new SdpTransformWrap(sdpStr);
-        const videoMLine = sdpTransformer.selectMedia('video');
+        const videoMLines = sdpTransformer.selectMedia(MediaType.VIDEO);
 
-        if (!videoMLine) {
+        if (!videoMLines) {
             logger.debug(`No 'video' media found in the sdp: ${sdpStr}`);
 
             return sdpStr;
         }
-        if (videoMLine.direction === 'recvonly') {
-            logger.debug('RtxModifier doing nothing, video m line is recvonly');
 
-            return sdpStr;
-        }
-        if (videoMLine.getSSRCCount() < 1) {
-            logger.debug('RtxModifier doing nothing, no video ssrcs present');
+        for (const videoMLine of videoMLines) {
+            if (videoMLine.direction !== MediaDirection.RECVONLY
+                && videoMLine.getSSRCCount()
+                && videoMLine.containsAnySSRCGroups()) {
+                const fidGroups = videoMLine.findGroups('FID');
 
-            return sdpStr;
-        }
-        if (!videoMLine.containsAnySSRCGroups()) {
-            logger.debug('RtxModifier doing nothing, '
-              + 'no video ssrcGroups present');
+                // Remove the fid groups from the mline
+                videoMLine.removeGroupsBySemantics('FID');
 
-            return sdpStr;
-        }
-        const fidGroups = videoMLine.findGroups('FID');
+                // Get the rtx ssrcs and remove them from the mline
+                for (const fidGroup of fidGroups) {
+                    const rtxSsrc = parseSecondarySSRC(fidGroup);
 
-        // Remove the fid groups from the mline
-
-        videoMLine.removeGroupsBySemantics('FID');
-
-        // Get the rtx ssrcs and remove them from the mline
-        for (const fidGroup of fidGroups) {
-            const rtxSsrc = parseSecondarySSRC(fidGroup);
-
-            videoMLine.removeSSRC(rtxSsrc);
+                    videoMLine.removeSSRC(rtxSsrc);
+                }
+            }
         }
 
         return sdpTransformer.toRawSDP();

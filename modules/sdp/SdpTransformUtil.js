@@ -417,10 +417,11 @@ export class SdpTransformWrap {
      * (it's not a copy).
      */
     selectMedia(mediaType) {
-        const selectedMLine
-            = this.parsedSDP.media.find(mLine => mLine.type === mediaType);
+        const selectedMLines = this.parsedSDP.media
+            .filter(mLine => mLine.type === mediaType)
+            .map(mLine => new MLineWrap(mLine));
 
-        return selectedMLine ? new MLineWrap(selectedMLine) : null;
+        return selectedMLines ?? null;
     }
 
     /**

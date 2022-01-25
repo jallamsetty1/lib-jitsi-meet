@@ -72,7 +72,7 @@ export default class SdpConsistency {
      */
     makeVideoPrimarySsrcsConsistent(sdpStr) {
         const sdpTransformer = new SdpTransformWrap(sdpStr);
-        const videoMLine = sdpTransformer.selectMedia('video');
+        const videoMLine = sdpTransformer.selectMedia('video')?.[0];
 
         if (!videoMLine) {
             logger.debug(`${this.logPrefix} no 'video' media found in the sdp: ${sdpStr}`);

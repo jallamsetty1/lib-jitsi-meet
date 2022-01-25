@@ -5,6 +5,7 @@ import MediaDirection from '../../service/RTC/MediaDirection';
 import * as MediaType from '../../service/RTC/MediaType';
 import VideoType from '../../service/RTC/VideoType';
 import browser from '../browser';
+import FeatureFlags from '../flags/FeatureFlags';
 
 const logger = getLogger(__filename);
 const DESKTOP_SHARE_RATE = 500000;
@@ -235,11 +236,15 @@ export class TPCUtils {
     * @returns {void}
     */
     addTrack(localTrack, isInitiator) {
+        const mediaType = localTrack.getType();
         const track = localTrack.getTrack();
+        const isMultiStreamsSupported = FeatureFlags.isMultiStreamSupportEnabled() && mediaType === MediaType.VIDEO;
 
-        if (isInitiator) {
-            // Use pc.addTransceiver() for the initiator case when local tracks are getting added
-            // to the peerconnection before a session-initiate is sent over to the peer.
+        // Add a transceiver in the following cases.
+        // 1. The client is the offerer in a p2p connection.
+        // 2. A second track is being added to the peerconnection when sending multiple video streams is supported on
+        // the client.
+        if (isInitiator || (isMultiStreamsSupported && this.pc.getLocalTracks(MediaType.VIDEO).length > 1)) {
             const transceiverInit = {
                 direction: MediaDirection.SENDRECV,
                 streams: [ localTrack.getOriginalStream() ],
@@ -250,6 +255,8 @@ export class TPCUtils {
                 transceiverInit.sendEncodings = this._getStreamEncodings(localTrack);
             }
             this.pc.peerconnection.addTransceiver(track, transceiverInit);
+
+        // Jvb or p2p responder case when the first audio/video stream is added.
         } else {
             // Use pc.addTrack() for responder case so that we can re-use the m-lines that were created
             // when setRemoteDescription was called. pc.addTrack() automatically  attaches to any existing
@@ -345,7 +352,20 @@ export class TPCUtils {
      */
     replaceTrack(oldTrack, newTrack) {
         const mediaType = newTrack?.getType() ?? oldTrack?.getType();
-        const transceiver = this.findTransceiver(mediaType, oldTrack);
+        let transceiver;
+
+        if (oldTrack) {
+            transceiver = this.pc.peerconnection.getTransceivers()?.find(t => t.sender?.track === oldTrack.getTrack());
+        } else if (!this.pc.getLocalTracks(mediaType)?.length) {
+            transceiver = this.pc.peerconnection.getTransceivers()?.find(t => t.receiver?.track?.kind === mediaType);
+        } else {
+            // Find the first send-only transceiver when more than 1 video tracks are added to the peerconnection.
+            transceiver = this.pc.peerconnection.getTransceivers()?.find(
+                t => t.receiver?.track?.kind === mediaType
+                && t.direction === MediaDirection.RECVONLY
+                && t.currentDirection === MediaDirection.INACTIVE);
+        }
+        
         const track = newTrack?.getTrack() ?? null;
 
         if (!transceiver) {
@@ -353,7 +373,8 @@ export class TPCUtils {
         }
         logger.debug(`${this.pc} Replacing ${oldTrack} with ${newTrack}`);
 
-        return transceiver.sender.replaceTrack(track);
+        return transceiver.sender.replaceTrack(track)
+            .then(() => Promise.resolve(transceiver));
     }
 
     /**

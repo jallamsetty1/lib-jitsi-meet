@@ -163,6 +163,8 @@ export default class JitsiLocalTrack extends JitsiTrack {
         // correspond to the id of a matching device from the available device list.
         this._realDeviceId = this.deviceId === '' ? undefined : this.deviceId;
 
+        // Used for uniquely indentifying a video track when multiple local video tracks are supported.
+        this._sourceName = null;
         this._trackMutedTS = 0;
 
         this._onDeviceListWillChange = devices => {
@@ -669,6 +671,14 @@ export default class JitsiLocalTrack extends JitsiTrack {
     }
 
     /**
+     *
+     * @returns
+     */
+    getSourceName() {
+        return this._sourceName;
+    }
+
+    /**
      * Returns if associated MediaStreamTrack is in the 'ended' state
      *
      * @returns {boolean}
@@ -859,6 +869,14 @@ export default class JitsiLocalTrack extends JitsiTrack {
                 logger.error('Failed to switch to the new stream!', error);
                 throw error;
             });
+    }
+
+    /**
+     *
+     * @param {*} name
+     */
+    setSourceName(name) {
+        this._sourceName = name;
     }
 
     /**
