@@ -1,6 +1,16 @@
 /* eslint-disable max-len */
-import { MockPeerConnection } from './MockClasses';
+
+import JitsiMeetJS from '../../JitsiMeetJS';
+import SignalingLayerImpl from '../xmpp/SignalingLayerImpl';
+import { MockPeerConnection, MockRTC } from './MockClasses';
+import RTC from './RTC';
 import { TPCUtils } from './TPCUtils';
+import TraceablePeerConnection from './TraceablePeerConnection';
+import FeatureFlags from '../flags/FeatureFlags';
+import { DEFAULT_STUN_SERVERS } from '../xmpp/xmpp';
+import { MockChatRoom } from '../xmpp/MockClasses';
+import JingleSessionPC from '../xmpp/JingleSessionPC';
+import SampleSdpStrings from '../sdp/SampleSdpStrings';
 
 const TEST_VIDEO_BITRATES = {
     low: 200000,
@@ -207,5 +217,140 @@ describe('TPCUtils', () => {
                 ].join('\r\n')}\r\n`;
             }
         });
+    });
+
+    describe('replaceTrack tests', () => {
+        let jingleSession, jingleSessionPeer;
+        let rtc;
+        let signalingLayer;
+        let videoTrack1;
+        let videoTrack2;
+        let videoTrack3;
+        const SID = 'sid12345';
+
+        const remoteSdp = ''
+        'v=0\r\n'
+        'o=- 1644263843832 5 IN IP4 127.0.0.1\r\n'
+        's=-\r\n'
+        't=0 0\r\n'
+        'a=group:BUNDLE 0 \r\n'
+        'a=msid-semantic: WMS mixedmslabel\r\n'
+        'm=video 10000 UDP/TLS/RTP/SAVPF 101 100 96 97\r\n'
+        'a=rtcp:9 IN IP4 0.0.0.0\r\n'
+        'a=candidate:2 1 udp 1694498815 129.213.110.77 10000 typ srflx raddr 0.0.0.0 rport 9 generation 0\r\n'
+        'a=ice-ufrag:ae6ub1fras69o3\r\n'
+        'a=ice-pwd:75omdatakrh82chchh89mk6suj\r\n'
+        'a=fingerprint:sha-256 CB:D4:DD:2E:10:C2:40:DB:27:ED:15:34:C5:16:08:CB:8C:93:2D:B3:A3:DA:3D:FD:63:40:F0:F0:E0:1A:39:80\r\n'
+        'a=setup:actpass\r\n'
+        'a=mid:0\r\n'
+        'a=extmap:3 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\r\n'
+        'a=extmap:5 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01\r\n'
+        'a=sendrecv\r\n'
+        'a=msid:mixedmslabel mixedlabelvideo0\r\n'
+        'a=rtcp-mux\r\n'
+        'a=rtpmap:101 VP9/90000\r\n'
+        'a=rtcp-fb:101 ccm fir\r\n'
+        'a=rtcp-fb:101 nack\r\n'
+        'a=rtcp-fb:101 nack pli\r\n'
+        'a=rtcp-fb:101 transport-cc\r\n'
+        'a=fmtp:101 x-google-start-bitrate=800\r\n'
+        'a=rtpmap:100 VP8/90000\r\n'
+        'a=rtcp-fb:100 ccm fir\r\n'
+        'a=rtcp-fb:100 nack\r\n'
+        'a=rtcp-fb:100 nack pli\r\n'
+        'a=rtcp-fb:100 transport-cc\r\n'
+        'a=fmtp:100 x-google-start-bitrate=800\r\n'
+        'a=rtpmap:96 rtx/90000\r\n'
+        'a=rtcp-fb:96 ccm fir\r\n'
+        'a=rtcp-fb:96 nack\r\n'
+        'a=rtcp-fb:96 nack pli\r\n'
+        'a=fmtp:96 apt=100\r\n'
+        'a=rtpmap:97 rtx/90000\r\n'
+        'a=rtcp-fb:97 ccm fir\r\n'
+        'a=rtcp-fb:97 nack\r\n'
+        'a=rtcp-fb:97 nack pli\r\n'
+        'a=fmtp:97 apt=101\r\n'
+        'a=ssrc:332512497 cname:\r\n'
+        'a=ssrc:332512497 msid:mixedmslabel mixedlabelvideo0\r\n'
+        'a=ssrc:332512497 mslabel:mixedmslabel\r\n'
+        'a=ssrc:332512497 label:mixedlabelvideo0\r\n';
+
+        beforeEach(async () => {
+            FeatureFlags.init({ sourceNameSignaling: true, sendMultipleVideoStreams: true });
+
+            const conferenceStub = {
+                myUserId: () => ''
+            };
+            rtc = new RTC(conferenceStub, {});
+            RTC.init({});
+
+            [ videoTrack1 ] = await JitsiMeetJS.createLocalTracks({ devices: [ 'video' ] });
+            [ videoTrack2 ] = await JitsiMeetJS.createLocalTracks({ devices: [ 'video' ] });
+            [ videoTrack3 ] = await JitsiMeetJS.createLocalTracks({ devices: [ 'video' ] });
+
+            signalingLayer = new SignalingLayerImpl();
+            const connectionStub = {
+                connected: true,
+                jingle: {
+                    terminate: () => {}
+                },
+                sendIQ: () => {},
+                addEventListener: () => () => { }
+            };
+            const pcConfigStub = {
+                iceServers: DEFAULT_STUN_SERVERS
+            };
+
+            jingleSession = new JingleSessionPC(
+                SID, // sid
+                'peer1', // localJid
+                'peer2', // remoteJid
+                connectionStub, // connection
+                {
+                    offerToReceiveAudio: false,
+                    offerToReceiveVideo: true
+                }, // mediaConstraints
+                pcConfigStub, // pcConfig
+                true, // isP2P
+                true // isInitiator
+            );
+            jingleSession.initialize(new MockChatRoom(), rtc, signalingLayer, {usesUnifiedPlan: true})
+
+            jingleSessionPeer = new JingleSessionPC(
+                SID, // sid
+                'peer2', // localJid
+                'peer1', // remoteJid
+                connectionStub, // connection
+                {
+                    offerToReceiveAudio: false,
+                    offerToReceiveVideo: true
+                }, // mediaConstraints
+                pcConfigStub, // pcConfig
+                true, // isP2P
+                false // isInitiator
+            );
+            jingleSessionPeer.initialize(new MockChatRoom(), rtc, signalingLayer, {usesUnifiedPlan: true})
+
+        });
+
+        it('adds multiple tracks', async () => {
+            await jingleSession.peerconnection.addTrack(videoTrack1);
+            jingleSession.invite([ videoTrack1 ]);
+
+            await jingleSessionPeer._renegotiate(jingleSession.peerconnection.peerconnection.localDescription.sdp);
+
+            const video = jingleSession.peerconnection.peerconnection.getTransceivers()
+                .filter(t => t.receiver.track.kind === 'video')?.length;
+            
+            expect(video).toEqual(1);
+
+            await jingleSession.addTrack(videoTrack2);
+            const video2 = jingleSession.peerconnection.peerconnection.getTransceivers()
+                .filter(t => t.receiver.track.kind === 'video')?.length;
+
+            expect(video2).toEqual(2);
+
+        });
+
     });
 });
